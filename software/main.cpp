@@ -2,6 +2,12 @@
 #include <RFM12B.h>
 #include <SPI.h>
 #include "bma2XX_regs.h"
+#include <CounterLib_t.h>
+
+#include "Energia.h"
+
+
+Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 
 #define NODEID        42   //network ID used for this unit
 #define NETWORKID     137  //the network ID we are on
@@ -11,6 +17,13 @@
 #define RADIO
 #define BUZZER
 #define ACC
+//#define DEBUG
+
+#define FILTER   //prefilter for some Frequencies (100, 200, 300, 400, 500, 600kHz)
+
+#define FREQDELAY 2   //tune this for better frequency readout
+#define AQUISITION 50 //how lonh to wait for frequency measurement
+#define MINFREQ 90    //lowest used frequency
 
 
 #define START               digitalWrite(CS_BMA, 0)
@@ -29,6 +42,7 @@
 #define CS_BMA   P3_1
 
 #define ADC P1_4
+#define WIRE P1_0
 
 /* VBAT = ADC * 0,00244V
  * 614  = 1,5V
@@ -45,6 +59,7 @@
 RFM12B radio;
 byte sendSize = 0;
 char payload[28] = ""; // max. 127 bytes
+uint16_t history[3] = {0, 0, 0};
 
 
 byte data[3];
@@ -73,11 +88,10 @@ void setup() {
   pinMode(CS_BMA, OUTPUT);
   digitalWrite(CS_BMA, HIGH);
 
-  pinMode(BUTTON, INPUT_PULLUP);
-  attachInterrupt(BUTTON, buttonFunction, FALLING);  //interrupt for button
-  
+  #ifdef DEBUG
   Serial.begin(SERIAL_BAUD);
   Serial.print("start...");
+  #endif
 
   SPI.begin();
   SPI.setClockDivider(2); //8MHz SPI clock
@@ -87,6 +101,9 @@ void setup() {
   radio.Sleep(); //sleep right away to save power
   #endif
 
+  pinMode(BUTTON, INPUT_PULLUP);
+  attachInterrupt(BUTTON, buttonFunction, FALLING);  //interrupt for button
+
   #ifdef ACC
   bma2XXclearInterrupts(); //clear existing interrupts
   delay(100);
@@ -94,7 +111,14 @@ void setup() {
   attachInterrupt(P1_3, accFunction, FALLING); //interrupt for BMA280
   #endif
 
-  suspend(); //sleep, wait for interrupts
+  //pinMode(WIRE, INPUT);
+  attachInterrupt(WIRE, wireFunction, FALLING);  //interrupt for button
+  
+
+  //enableComparator();
+  //_BIS_SR(LPM4_bits + GIE); //sleep, wait for interrupts
+  //interrupts();
+  suspend();
 }
 
 void loop() {
@@ -130,6 +154,7 @@ void loop() {
       #ifdef BUZZER
       startMelody(); //Windows XP boot melody ;)
       #endif
+      attachInterrupt(WIRE, wireFunction, FALLING);
       return;
     }
 
@@ -138,44 +163,65 @@ void loop() {
   }
 
   if (wireInterrupt) {
-    wireInterrupt = false;   
-    sendPackage(2);
+    wireInterrupt = false;
+    //CACTL1 = 0; //disable comparator
+    //CACTL2 = 0;
+    detachInterrupt(WIRE); //reuse interrupt Pin from frequency measurement
+    long currentTime = millis();
+    boolean freqValid = false;
+    freqCounter.start(CL_Div8); //start Timer  with 8x divider
+    while (millis() - currentTime < AQUISITION) {
+      freqCounter.reset();
+      delay(FREQDELAY);  
+      history[0] = ((freqCounter.read()) / FREQDELAY * 8) / 1.28;
+      if ((history[1] < history[2] + 1 || history[1] > history[2] - 1) && (history[0] < history[1] + 1 || history[0] > history[1] - 1) && history[0] > 90) { //compare three measurements
+        #ifdef FILTER
+        if ((history[0] < 102 && history[0] > 98) || (history[0] < 202 && history[0] > 198) || (history[0] < 302 && history[0] > 298) || (history[0] < 402 && history[0] > 398) || (history[0] < 502 && history[0] > 498) || (history[0] < 602 && history[0] > 598)) {
+          freqValid = true;
+          break;
+        }
+        #endif
+        history[2] = history[1];
+        history[1] = history[0];
+        #ifndef FILTER
+        freqValid = true;
+        break;
+        #endif
+      }
+      delay(FREQDELAY);
+    }
+    freqCounter.stop(); //stop Timer
+    /*if (!freqValid) {
+      history[0] = 999;
+    }*/
+    sendPackage(2, history[0]);
+    initTimers(); //restore system Timers
     fail();
-    #ifdef LED
-     for(int j=0; j<256; j++) {
-      Wheel((j) & 255, data);
-      analogWrite(LED_R, data[0]);
-      analogWrite(LED_G, data[1]);
-      analogWrite(LED_B, data[2]);
-    delay(3);
-     }
-    digitalWrite(LED_R, LOW);
-    digitalWrite(LED_G, LOW);
-    digitalWrite(LED_B, LOW);
-    #endif
-
-    //TODO
+    pinMode(WIRE, INPUT);
+    attachInterrupt(WIRE, wireFunction, FALLING);
   }
 
   if (accInterrupt) {
     accInterrupt = false;
     char intType = readBMA2XX(BMAREG_INTSTAT0); //Read the Interrupt Reason
     if (bitRead(intType, INTSTAT0_FLATINT)) {   //Oriantation changed
-      sendPackage(11);
+      sendPackage(11, 0);
       fail();
     }
     else if (bitRead(intType, INTSTAT0_SLOPEINT)) { //Fast motion Interrupt
-      sendPackage(12);
-      fail();
+      sendPackage(12, 0);
+      //fail();
     }
     else if (bitRead(intType, INTSTAT0_SLO_NO_MOT_INT)) { //Slow Motion interrupt
-      sendPackage(13);
+      sendPackage(13, 0);
       //fail();
     }
   }
 
+  //enableComparator();
   interrupts();//reenable interrupts
-  suspend();   //go back to sleep
+  //go back to sleep
+  suspend();
 }
 
 void selfTest() {
@@ -228,7 +274,7 @@ void selfTest() {
   
   delay(500);
 
-  sendPackage(1); //test Radio 
+  sendPackage(1, 0); //test Radio 
   
   digitalWrite(LED_G, HIGH);
   delay(200);
@@ -236,6 +282,7 @@ void selfTest() {
 }
 
 void deepSleep() {
+  detachInterrupt(WIRE);
   #ifdef BUZZER
   shutdownMelody(); //Windows XP shutdown melody ;)
   #endif
@@ -246,10 +293,11 @@ void deepSleep() {
   writeBMA2XX(BMAREG_SLEEP_DURATION, 0b10 << BMA_LOWPOWER_ENA); //go to suspend mode (~2µA)
   #endif
   interrupts(); //enable interrupts to capture button press
-  suspend();    //low power mode
+  //_BIS_SR(LPM4_bits + GIE);   //low power mode
+  suspend();
 }
 
-
+/*
 void Wheel(byte WheelPos, byte pdata[]) { //HSV color table thingy
   if(WheelPos < 85) {
     pdata[0] = WheelPos * 3;
@@ -269,7 +317,7 @@ void Wheel(byte WheelPos, byte pdata[]) { //HSV color table thingy
    pdata[2] = 255 - WheelPos * 3;
    return;
   }
-}
+}*/
 
 void fail() { //fail sound...
   for (byte i = 0; i < 5; i++) {
@@ -284,6 +332,12 @@ void fail() { //fail sound...
   } 
 }
 
+void wireFunction() //ISR
+{
+  wakeup();
+  noInterrupts();
+  wireInterrupt = true;
+}
 
 void buttonFunction() //ISR
 {
@@ -298,14 +352,22 @@ void accFunction() //ISR
   noInterrupts();
   accInterrupt = true;
 }
-
-void wireFunction() //ISR
-{
+/*
+__attribute__((interrupt(COMPARATORA_VECTOR))) //ISR
+void ComparatorISR(void)
+{ 
   wakeup();
   noInterrupts();
   wireInterrupt = true;
 }
 
+void enableComparator() { //TODO
+  //WDTCTL = WDTPW + WDTHOLD; 
+  CACTL2 = CAF + P2CA0; //no short, CA0 on -, digital Filter
+
+  CACTL1 = CAON + CAREF_3 + CAIE + CAIES; //comparator enabled, internal diode reference, comparator interrupt enabled, rising edge interrupt
+}
+*/
 uint16_t readBat() {
   for (byte i = 0; i < 3; i++) { //read multiple times for better Accuracy, espacially after deep sleep
     batVoltage = analogRead(ADC);
@@ -319,20 +381,10 @@ uint16_t readBat() {
   return batVoltage;
 }
 
-void sendPackage(byte reason) { //package handler
-   
-  #ifdef ACC
-  int8_t temp = readBMA2XX(BMAREG_TEMPERATURE);
-  temp = (temp*0.5)+24;
-  #endif
-
-  #ifndef ACC
-  int8_t temp = 0;
-  #endif
-  
+void sendPackage(byte reason, uint16_t freq) { //package handler
   uint8_t bat = constrain(map(readBat(), 490, 615, 0, 99), 0, 99);
   #ifdef RADIO
-  snprintf(payload, 28, "ID:%02d;INT:%02d;BAT:%02d;TMP:%02d;", NODEID, reason, bat, temp);
+  snprintf(payload, 28, "ID:%02d;INT:%02d;BAT:%02d;F:%03d;", NODEID, reason, bat, freq);
   radio.Wakeup();
   radio.Send(GATEWAYID, payload, strlen(payload) + 1, requestACK);
   memset(payload, 0, sizeof(payload));
