@@ -5,7 +5,7 @@ Demo Video (sorry for German): https://www.youtube.com/watch?v=ximVu1-kXSI
 ## Usage
 The sensor is turned on by pressing the button on the back. There is a startup melody that indicates successful startup.
 
-If you hold the butten for > 5s, the leds flash blue. If the button is released now, the sensor shuts down and enters ultra low current mode. If you keep pressing, the sensor enters a self-test mode testing all it's components. At the beginning of the self-test, it displays the battery voltage (1,1V -> 1,5V = Red -> Green).
+If you hold the butten for > 5s, the leds flash blue. If the button is released now, the sensor shuts down and enters ultra low power mode (aka shipping mode). If you keep pressing, the sensor enters a self-test mode testing all it's components. At the beginning of the self-test, it displays the battery voltage (1,1V -> 1,5V = Red -> Green).
 
 ## Hardware
 The sensor uses a MSP430 cpu, a RFM12B radio module, a Microchip StepUp and a BMA280 Accelerometer. Additionaly there are some RGB led's, a Piezo buzzer and a mechanical button on the back.
@@ -25,6 +25,8 @@ The code uses 14.964 Bytes (91%) of the flash memory and 414 Bytes (80%) of the 
 
 ## ToDo
 
+- add START / FINAL frequency filter with melody
+- detache accelerometer interrupt _before_ going to sleep
 - "menu" for choosing different game modes (now all are active)
 - fix ACK transmission
 - implemement more game modes using the accelerometer
