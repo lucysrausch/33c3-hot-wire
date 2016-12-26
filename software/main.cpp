@@ -14,12 +14,26 @@ Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 
 #define LED       //disbable modules by uncommenting
 #define RADIO
-//#define BUZZER
+#define BUZZER
 #define ACC
 //#define DEBUG
 
 #define WINFREQ   200
 #define STARTFREQ 100
+
+/*
+ * Gamemode 1: green. Only reacts on wire contact.
+ * Gamemode 2: blue.  Triggers on wire contact, and too slow motion.
+ * Gamemode 3: red.   Triggers on wire contact, too slow motion and change of oriantation.
+ */
+  
+/* VBAT = ADC * 0,00244V
+ * 614  = 1,5V
+ * 574  = 1,4V
+ * 533  = 1,3V
+ * 492  = 1,2V
+ */
+
 
 #define FILTER   //prefilter for some Frequencies (100, 200, 300, 400, 500, 600kHz)
 
@@ -47,17 +61,14 @@ Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 #define WIRE P1_0
 #define INT_BMA  P1_3
 
-/* VBAT = ADC * 0,00244V
- * 614  = 1,5V
- * 574  = 1,4V
- * 533  = 1,3V
- * 492  = 1,2V
- */
-
 
 #define ACK_TIME     1500  // # of ms to wait for an ack
 #define SERIAL_BAUD  9600  // serial debug baud rate
 #define requestACK 0       //request ack 
+
+#define RED 2
+#define GREEN 0
+#define BLUE 1
 
 RFM12B radio;
 byte sendSize = 0;
@@ -69,6 +80,9 @@ byte data[3];
 boolean buttonInterrupt = false, wireInterrupt = false, accInterrupt = false;
 
 uint16_t batVoltage = 0;
+byte gameMode = 0;
+
+
 
   
 void setup() {                
@@ -111,7 +125,7 @@ void setup() {
   bma2XXclearInterrupts(); //clear existing interrupts
   delay(100);
   bma2XXsetProfile(); //initialize Accelerometer
-  attachInterrupt(INT_BMA, accFunction, FALLING); //interrupt for BMA280
+  //attachInterrupt(INT_BMA, accFunction, FALLING); //interrupt for BMA280
   #endif
 
   //pinMode(WIRE, INPUT);
@@ -129,6 +143,19 @@ void loop() {
     buttonInterrupt = false;
     for (byte i = 0; i < 255; i++) { //wait ~5s
       if (digitalRead(BUTTON) != LOW) {
+        delay(1000);
+        if (digitalRead(BUTTON) == LOW) {
+          gameMode++;
+          if (gameMode > 2)
+            gameMode = 0;
+
+          if (gameMode == 0)
+            detachInterrupt(INT_BMA);
+
+          else
+            attachInterrupt(INT_BMA, accFunction, FALLING);
+          fail(gameMode);
+        }
         return;
       }
       delay(20);
@@ -268,7 +295,7 @@ void loop() {
       winMelody();
     }
     else {
-      fail();
+      fail(gameMode);
     }
     pinMode(WIRE, INPUT);
     attachInterrupt(WIRE, wireFunction, FALLING);
@@ -277,17 +304,17 @@ void loop() {
   if (accInterrupt) {
     accInterrupt = false;
     char intType = readBMA2XX(BMAREG_INTSTAT0); //Read the Interrupt Reason
-    if (bitRead(intType, INTSTAT0_FLATINT)) {   //Oriantation changed
+    if (bitRead(intType, INTSTAT0_FLATINT && gameMode == 2)) {   //Oriantation changed
       sendPackage(11, 0);
-      fail();
+      fail(gameMode);
     }
     else if (bitRead(intType, INTSTAT0_SLOPEINT)) { //Fast motion Interrupt
       sendPackage(12, 0);
       //fail();
     }
-    else if (bitRead(intType, INTSTAT0_SLO_NO_MOT_INT)) { //Slow Motion interrupt
+    else if (bitRead(intType, INTSTAT0_SLO_NO_MOT_INT) && gameMode > 0) { //Slow Motion interrupt
       sendPackage(13, 0);
-      //fail();
+      fail(gameMode);
     }
   }
 
@@ -393,14 +420,24 @@ void Wheel(byte WheelPos, byte pdata[]) { //HSV color table thingy
   }
 }*/
 
-void fail() { //fail sound...
+void fail(byte color) { //fail sound...
   for (byte i = 0; i < 5; i++) {
+    if (color == RED)
     digitalWrite(LED_R, HIGH);
+    else if (color == GREEN)
+    digitalWrite(LED_G, HIGH);
+    else if (color == BLUE)
+    digitalWrite(LED_B, HIGH);
     #ifdef BUZZER
     tone(BUZZ, 3200);
     #endif
     delay(100);
+    if (color == RED)
     digitalWrite(LED_R, LOW);
+    if (color == GREEN)
+    digitalWrite(LED_G, LOW);
+    if (color == BLUE)
+    digitalWrite(LED_B, LOW);
     noTone(BUZZ);
     delay(100);
   } 
