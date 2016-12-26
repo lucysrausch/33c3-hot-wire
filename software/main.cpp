@@ -18,7 +18,7 @@ Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 #define ACC
 //#define DEBUG
 
-#define WINFREQ   200
+#define WINFREQ   500
 #define STARTFREQ 100
 
 /*
@@ -129,7 +129,7 @@ void setup() {
   #endif
 
   //pinMode(WIRE, INPUT);
-  attachInterrupt(WIRE, wireFunction, FALLING);  //interrupt for button
+  attachInterrupt(WIRE, wireFunction, CHANGE);  //interrupt for button
   
 
   //enableComparator();
@@ -154,6 +154,7 @@ void loop() {
 
           else
             attachInterrupt(INT_BMA, accFunction, FALLING);
+            //noInterrupts();*/
           fail(gameMode);
         }
         return;
@@ -197,7 +198,7 @@ void loop() {
     wireInterrupt = false;
     //CACTL1 = 0; //disable comparator
     //CACTL2 = 0;
-    detachInterrupt(WIRE); //reuse interrupt Pin from frequency measurement
+    //reuse interrupt Pin from frequency measurement
     long currentTime = millis();
     boolean freqValid = false, freqStart = false, freqWin = false;;
     freqCounter.start(CL_Div8); //start Timer  with 8x divider
@@ -207,7 +208,7 @@ void loop() {
       history[0] = ((freqCounter.read()) / FREQDELAY * 8) / 1.28;
       if ((history[1] < history[2] + 1 || history[1] > history[2] - 1) && (history[0] < history[1] + 1 || history[0] > history[1] - 1) && history[0] > 90) { //compare three measurements
         #ifdef FILTER
-        if (history[0] < 102 && history[0] > 98) {
+        if (history[0] < 110 && history[0] > 90) {
           freqValid = true;
           #if STARTFREQ == 100
           freqStart = true;
@@ -218,7 +219,7 @@ void loop() {
           break;
         }
 
-        if (history[0] < 202 && history[0] > 198) {
+        if (history[0] < 210 && history[0] > 190) {
           freqValid = true;
           #if STARTFREQ == 200
           freqStart = true;
@@ -229,7 +230,7 @@ void loop() {
           break;
         }
         
-        if (history[0] < 302 && history[0] > 298) {
+        if (history[0] < 310 && history[0] > 290) {
           freqValid = true;
           #if STARTFREQ == 300
           freqStart = true;
@@ -240,7 +241,7 @@ void loop() {
           break;
         }
         
-        if (history[0] < 402 && history[0] > 398) {
+        if (history[0] < 410 && history[0] > 390) {
           freqValid = true;
           #if STARTFREQ == 400
           freqStart = true;
@@ -251,7 +252,7 @@ void loop() {
           break;
         }
         
-        if (history[0] < 502 && history[0] > 498) {
+        if (history[0] < 510 && history[0] > 490) {
           freqValid = true;
           #if STARTFREQ == 500
           freqStart = true;
@@ -262,7 +263,7 @@ void loop() {
           break;
         }
         
-        if (history[0] < 602 && history[0] > 598) {
+        if (history[0] < 610 && history[0] > 590) {
           freqValid = true;
           #if STARTFREQ == 600
           freqStart = true;
@@ -273,13 +274,14 @@ void loop() {
           break;
         }
         #endif
-        history[2] = history[1];
-        history[1] = history[0];
+        
         #ifndef FILTER
         freqValid = true;
         break;
         #endif
       }
+      history[2] = history[1];
+      history[1] = history[0];
       delay(FREQDELAY);
     }
     freqCounter.stop(); //stop Timer
@@ -292,19 +294,27 @@ void loop() {
       startMelody();
     }
     else if (freqWin) {
+      for (byte i = 0; i < 2; i++) { //indicator flashing
+      digitalWrite(LED_B, HIGH);
+      digitalWrite(LED_R, HIGH);
+      delay(100);
+      digitalWrite(LED_B, LOW);
+      digitalWrite(LED_R, LOW);
+      delay(100);
+    }
       winMelody();
     }
     else {
       fail(gameMode);
     }
     pinMode(WIRE, INPUT);
-    attachInterrupt(WIRE, wireFunction, FALLING);
+    attachInterrupt(WIRE, wireFunction, CHANGE);
   }
 
   if (accInterrupt) {
     accInterrupt = false;
     char intType = readBMA2XX(BMAREG_INTSTAT0); //Read the Interrupt Reason
-    if (bitRead(intType, INTSTAT0_FLATINT && gameMode == 2)) {   //Oriantation changed
+    if (bitRead(intType, INTSTAT0_FLATINT) && gameMode == 2) {   //Oriantation changed
       sendPackage(11, 0);
       fail(gameMode);
     }
@@ -421,6 +431,11 @@ void Wheel(byte WheelPos, byte pdata[]) { //HSV color table thingy
 }*/
 
 void fail(byte color) { //fail sound...
+
+  #ifdef ACC
+  //detachInterrupt(INT_BMA);
+  delay(5);
+  #endif
   for (byte i = 0; i < 5; i++) {
     if (color == RED)
     digitalWrite(LED_R, HIGH);
@@ -441,10 +456,15 @@ void fail(byte color) { //fail sound...
     noTone(BUZZ);
     delay(100);
   } 
+  #ifdef ACC
+  delay(5);
+  //attachInterrupt(INT_BMA, accFunction, FALLING);
+  #endif
 }
 
 void wireFunction() //ISR
 {
+  detachInterrupt(WIRE);
   wakeup();
   noInterrupts();
   wireInterrupt = true;
@@ -668,7 +688,7 @@ void bma2XXsetProfile()
   
   writeBMA2XX(BMAREG_INT_CTRL_LATCH, 0b1011); //set interrupt resetting behavior: temporary 1ms (active low)
   
-  writeBMA2XX(BMAREG_DETECT_OPTS1, (1<<DO_SLOPE_Z_EN) | (1<<DO_SLOPE_Y_EN) | (1<<DO_SLOPE_X_EN) | (1<<DO_FLAT_EN)); //enable Slope and Flat Interrupt
+  writeBMA2XX(BMAREG_DETECT_OPTS1, (1<<DO_FLAT_EN));//(1<<DO_SLOPE_Z_EN) | (1<<DO_SLOPE_Y_EN) | (1<<DO_SLOPE_X_EN) | (1<<DO_FLAT_EN)); //enable Slope and Flat Interrupt
   writeBMA2XX(BMAREG_SLOPE_THRESHOLD, (char)(15)); //configure slope detection: ds 4.8.5
   writeBMA2XX(BMAREG_SLOW_THRESHOLD, (char)(10)); //configure slow motion detection
   writeBMA2XX(BMAREG_SLOPE_DURATION, 0b00001011); //configure slope detection: ds 4.8.5
