@@ -25,9 +25,9 @@ The code uses 14.964 Bytes (91%) of the flash memory and 414 Bytes (80%) of the 
 
 ## ToDo
 
-- add START / FINAL frequency filter with melody
-- detache accelerometer interrupt _before_ going to sleep
+- ~~add START / FINAL frequency filter with melody~~
+- ~~detache accelerometer interrupt _before_ going to sleep~~
 - "menu" for choosing different game modes (now all are active)
 - fix ACK transmission
 - implemement more game modes using the accelerometer
-- actually using the comparator
+- actually using the comparator (hehe)
