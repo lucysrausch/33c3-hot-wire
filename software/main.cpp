@@ -6,7 +6,6 @@
 
 #include "Energia.h"
 
-
 Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 
 #define NODEID        42   //network ID used for this unit
@@ -15,9 +14,12 @@ Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 
 #define LED       //disbable modules by uncommenting
 #define RADIO
-#define BUZZER
+//#define BUZZER
 #define ACC
 //#define DEBUG
+
+#define WINFREQ   200
+#define STARTFREQ 100
 
 #define FILTER   //prefilter for some Frequencies (100, 200, 300, 400, 500, 600kHz)
 
@@ -43,6 +45,7 @@ Counter<> freqCounter;     // create counter that counts pulses on pin P1.0
 
 #define ADC P1_4
 #define WIRE P1_0
+#define INT_BMA  P1_3
 
 /* VBAT = ADC * 0,00244V
  * 614  = 1,5V
@@ -108,7 +111,7 @@ void setup() {
   bma2XXclearInterrupts(); //clear existing interrupts
   delay(100);
   bma2XXsetProfile(); //initialize Accelerometer
-  attachInterrupt(P1_3, accFunction, FALLING); //interrupt for BMA280
+  attachInterrupt(INT_BMA, accFunction, FALLING); //interrupt for BMA280
   #endif
 
   //pinMode(WIRE, INPUT);
@@ -147,12 +150,13 @@ void loop() {
       bma2XXclearInterrupts(); 
       delay(100);
       bma2XXsetProfile();
+      attachInterrupt(INT_BMA, accFunction, FALLING);
       #endif
       digitalWrite(LED_G, HIGH);
       delay(200);
       digitalWrite(LED_G, LOW);
       #ifdef BUZZER
-      startMelody(); //Windows XP boot melody ;)
+      bootMelody(); //Windows XP boot melody ;)
       #endif
       attachInterrupt(WIRE, wireFunction, FALLING);
       return;
@@ -168,7 +172,7 @@ void loop() {
     //CACTL2 = 0;
     detachInterrupt(WIRE); //reuse interrupt Pin from frequency measurement
     long currentTime = millis();
-    boolean freqValid = false;
+    boolean freqValid = false, freqStart = false, freqWin = false;;
     freqCounter.start(CL_Div8); //start Timer  with 8x divider
     while (millis() - currentTime < AQUISITION) {
       freqCounter.reset();
@@ -176,8 +180,69 @@ void loop() {
       history[0] = ((freqCounter.read()) / FREQDELAY * 8) / 1.28;
       if ((history[1] < history[2] + 1 || history[1] > history[2] - 1) && (history[0] < history[1] + 1 || history[0] > history[1] - 1) && history[0] > 90) { //compare three measurements
         #ifdef FILTER
-        if ((history[0] < 102 && history[0] > 98) || (history[0] < 202 && history[0] > 198) || (history[0] < 302 && history[0] > 298) || (history[0] < 402 && history[0] > 398) || (history[0] < 502 && history[0] > 498) || (history[0] < 602 && history[0] > 598)) {
+        if (history[0] < 102 && history[0] > 98) {
           freqValid = true;
+          #if STARTFREQ == 100
+          freqStart = true;
+          #endif
+          #if WINFREQ == 100
+          freqWin = true;
+          #endif
+          break;
+        }
+
+        if (history[0] < 202 && history[0] > 198) {
+          freqValid = true;
+          #if STARTFREQ == 200
+          freqStart = true;
+          #endif
+          #if WINFREQ == 200
+          freqWin = true;
+          #endif
+          break;
+        }
+        
+        if (history[0] < 302 && history[0] > 298) {
+          freqValid = true;
+          #if STARTFREQ == 300
+          freqStart = true;
+          #endif
+          #if WINFREQ == 300
+          freqWin = true;
+          #endif
+          break;
+        }
+        
+        if (history[0] < 402 && history[0] > 398) {
+          freqValid = true;
+          #if STARTFREQ == 400
+          freqStart = true;
+          #endif
+          #if WINFREQ == 400
+          freqWin = true;
+          #endif
+          break;
+        }
+        
+        if (history[0] < 502 && history[0] > 498) {
+          freqValid = true;
+          #if STARTFREQ == 500
+          freqStart = true;
+          #endif
+          #if WINFREQ == 500
+          freqWin = true;
+          #endif
+          break;
+        }
+        
+        if (history[0] < 602 && history[0] > 598) {
+          freqValid = true;
+          #if STARTFREQ == 600
+          freqStart = true;
+          #endif
+          #if WINFREQ == 600
+          freqWin = true;
+          #endif
           break;
         }
         #endif
@@ -191,12 +256,20 @@ void loop() {
       delay(FREQDELAY);
     }
     freqCounter.stop(); //stop Timer
-    /*if (!freqValid) {
+    if (!freqValid) {
       history[0] = 999;
-    }*/
+    }
     sendPackage(2, history[0]);
     initTimers(); //restore system Timers
-    fail();
+    if (freqStart) {
+      startMelody();
+    }
+    else if (freqWin) {
+      winMelody();
+    }
+    else {
+      fail();
+    }
     pinMode(WIRE, INPUT);
     attachInterrupt(WIRE, wireFunction, FALLING);
   }
@@ -283,6 +356,7 @@ void selfTest() {
 
 void deepSleep() {
   detachInterrupt(WIRE);
+  detachInterrupt(INT_BMA);
   #ifdef BUZZER
   shutdownMelody(); //Windows XP shutdown melody ;)
   #endif
@@ -351,6 +425,82 @@ void accFunction() //ISR
   wakeup();
   noInterrupts();
   accInterrupt = true;
+}
+
+void startMelody() {}
+
+#define WINSLEEP 600
+
+void winMelody() {
+  tone(BUZZ, 196);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 262);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 330);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 392);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 523);
+  delay(WINSLEEP/4);
+
+  tone(BUZZ, 784);
+  delay(WINSLEEP/2);
+  tone(BUZZ, 659);
+  delay(WINSLEEP/2);
+
+  // put your setup code here, to run once:
+  tone(BUZZ, 207);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 261);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 311);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 415);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 523);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 622);
+  delay(WINSLEEP/4);
+
+  tone(BUZZ, 830);
+  delay(WINSLEEP/2);
+  tone(BUZZ, 659);
+  delay(WINSLEEP/2);
+
+  // put your setup code here, to run once:
+  tone(BUZZ, 233);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 293);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 349);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 466);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 587);
+  delay(WINSLEEP/4);
+  tone(BUZZ, 698);
+  delay(WINSLEEP/4);
+
+  tone(BUZZ, 932);
+  delay(WINSLEEP/2);
+  noTone(BUZZ);
+  delay(WINSLEEP/32);
+  tone(BUZZ, 988);
+  delay(WINSLEEP/4);
+  noTone(BUZZ);
+  delay(WINSLEEP/32);
+  tone(BUZZ, 988);
+  delay(WINSLEEP/4);
+  noTone(BUZZ);
+  delay(WINSLEEP/32);
+  tone(BUZZ, 988);
+  delay(WINSLEEP/4);
+  noTone(BUZZ);
+  delay(WINSLEEP/32);
+
+  tone(BUZZ, 1046);
+  delay(WINSLEEP);
+  noTone(BUZZ);
 }
 /*
 __attribute__((interrupt(COMPARATORA_VECTOR))) //ISR
@@ -422,7 +572,7 @@ void shutdownMelody() {
   noTone(BUZZ);
 }
 
-void startMelody() {
+void bootMelody() {
   tone(BUZZ, 1661);
   delay(225);
   tone(BUZZ, 622);
